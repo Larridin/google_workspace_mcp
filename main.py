@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import sys
+import json
 from importlib import metadata
 
 # Local imports
@@ -38,6 +39,38 @@ def safe_print(text):
         print(text)
     except UnicodeEncodeError:
         print(text.encode('ascii', errors='replace').decode())
+
+def process_access_token():
+    """
+    Process the GOOGLE_OAUTH_ACCESS_TOKEN environment variable during startup.
+    If it's in JSON format, extract the access token and update the environment variable.
+    """
+    access_token = os.getenv('GOOGLE_OAUTH_ACCESS_TOKEN')
+    if not access_token:
+        return
+
+    try:
+        # Check if it looks like JSON and extract access token if needed
+        if access_token.strip().startswith('{'):
+            token_data = json.loads(access_token)
+            extracted_token = token_data.get('access_token')
+            if not extracted_token:
+                raise ValueError("JSON token missing 'access_token' field")
+
+            # Update the environment variable with the extracted token
+            os.environ['GOOGLE_OAUTH_ACCESS_TOKEN'] = extracted_token
+            logger.info("Successfully extracted access token from JSON format")
+            safe_print("Access token loaded from environment variable (JSON token)")
+        else:
+            logger.info("Successfully loaded access token from environment variable (raw token)")
+            safe_print("Access token loaded from environment variable (raw token)")
+        # If not JSON, leave as is (already a raw token)
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse JSON access token: {e}")
+        safe_print(f"Access token processing failed: Invalid JSON format")
+    except ValueError as e:
+        logger.error(f"Failed to process access token: {e}")
+        safe_print(f"Access token processing failed: {e}")
 
 def main():
     """
@@ -106,6 +139,9 @@ def main():
         safe_print(f"   {tool_icons[tool]} {tool.title()} - Google {tool.title()} API integration")
     print()
 
+    # Process access token during startup (extract from JSON if needed)
+    process_access_token()
+    
     # Check authentication mode
     access_token = os.getenv('GOOGLE_OAUTH_ACCESS_TOKEN')
     auth_method = "Access Token (GOOGLE_OAUTH_ACCESS_TOKEN)" if access_token else "OAuth 2.0 with PKCE"

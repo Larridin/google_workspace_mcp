@@ -124,7 +124,11 @@ uv run main.py
 
      **Option C: Access Token (Production/Automation)**
      ```bash
+     # Raw access token (recommended)
      export GOOGLE_OAUTH_ACCESS_TOKEN="your-access-token"
+     
+     # Or JSON format token (automatically extracted at startup)
+     export GOOGLE_OAUTH_ACCESS_TOKEN='{"access_token":"ya2...","expires_in":3599,"refresh_token":"1/....","scope":"openid","token_type":"bearer","id_token":"ey..."}'
      ```
      - Uses a pre-generated access token instead of OAuth flows
      - Disables OAuth management - server won't handle authorization
