@@ -196,6 +196,32 @@ async def start_google_auth(
 
     logger.info(f"Tool 'start_google_auth' invoked for user_google_email: '{user_google_email}', service: '{service_name}', session: '{mcp_session_id}'.")
 
+    # Check if we're using access token mode
+    access_token = os.getenv('GOOGLE_OAUTH_ACCESS_TOKEN')
+    if access_token:
+        logger.info(f"[start_google_auth] Access token mode detected - OAuth management is disabled")
+        return (
+            f"**OAuth Management Disabled - Access Token Mode Active**\n\n"
+            f"This MCP server is configured to use a pre-configured access token (GOOGLE_OAUTH_ACCESS_TOKEN) "
+            f"instead of OAuth flow management.\n\n"
+            f"**Current Configuration:**\n"
+            f"• Service: {service_name}\n"
+            f"• Requested user: {user_google_email}\n"
+            f"• Authentication method: Environment access token\n\n"
+            f"**No action needed:**\n"
+            f"The server will automatically use the configured access token for all Google API requests. "
+            f"If you're experiencing authentication errors, the issue is likely:\n"
+            f"1. The access token has expired\n"
+            f"2. The token lacks required permissions for {service_name}\n"
+            f"3. The token has been revoked\n\n"
+            f"**To resolve authentication issues:**\n"
+            f"1. Generate a new access token with the required scopes\n"
+            f"2. Update the GOOGLE_OAUTH_ACCESS_TOKEN environment variable\n"
+            f"3. Restart the MCP server\n\n"
+            f"**Note:** When using access tokens, the server does not manage OAuth flows. "
+            f"You must handle token generation and renewal externally."
+        )
+
     # Ensure OAuth callback is available for current transport mode
     redirect_uri = get_oauth_redirect_uri_for_current_mode()
     if not ensure_oauth_callback_available(_current_transport_mode, WORKSPACE_MCP_PORT, WORKSPACE_MCP_BASE_URI):

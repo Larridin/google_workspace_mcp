@@ -122,10 +122,21 @@ uv run main.py
      - Download credentials as `client_secret.json` in project root
      - To use a different location, set `GOOGLE_CLIENT_SECRET_PATH` (or legacy `GOOGLE_CLIENT_SECRETS`) environment variable with the file path
 
+     **Option C: Access Token (Production/Automation)**
+     ```bash
+     export GOOGLE_OAUTH_ACCESS_TOKEN="your-access-token"
+     ```
+     - Uses a pre-generated access token instead of OAuth flows
+     - Disables OAuth management - server won't handle authorization
+     - Ideal for headless deployments, CI/CD, and automated systems
+     - Token must include all required scopes for enabled services
+     - No token refresh capability - generate new tokens when expired
+
    **Credential Loading Priority**:
-   1. Environment variables (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`)
-   2. File specified by `GOOGLE_CLIENT_SECRET_PATH` or `GOOGLE_CLIENT_SECRETS` environment variable
-   3. Default file (`client_secret.json` in project root)
+   1. Access token (`GOOGLE_OAUTH_ACCESS_TOKEN`) - disables OAuth management
+   2. Environment variables (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`)
+   3. File specified by `GOOGLE_CLIENT_SECRET_PATH` or `GOOGLE_CLIENT_SECRETS` environment variable
+   4. Default file (`client_secret.json` in project root)
 
    **Why Environment Variables?**
    - ✅ Containerized deployments (Docker, Kubernetes)
@@ -194,6 +205,21 @@ python install_claude.py
       "env": {
         "GOOGLE_OAUTH_CLIENT_ID": "your-client-id.apps.googleusercontent.com",
         "GOOGLE_OAUTH_CLIENT_SECRET": "your-client-secret"
+      }
+    }
+  }
+}
+```
+
+**Alternative: Access Token Mode (for automation/headless setups)**
+```json
+{
+  "mcpServers": {
+    "google_workspace": {
+      "command": "uvx",
+      "args": ["workspace-mcp"],
+      "env": {
+        "GOOGLE_OAUTH_ACCESS_TOKEN": "your-access-token"
       }
     }
   }

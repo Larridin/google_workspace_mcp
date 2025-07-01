@@ -106,10 +106,16 @@ def main():
         safe_print(f"   {tool_icons[tool]} {tool.title()} - Google {tool.title()} API integration")
     print()
 
+    # Check authentication mode
+    access_token = os.getenv('GOOGLE_OAUTH_ACCESS_TOKEN')
+    auth_method = "Access Token (GOOGLE_OAUTH_ACCESS_TOKEN)" if access_token else "OAuth 2.0 with PKCE"
+    
     safe_print(f"📊 Configuration Summary:")
     safe_print(f"   🔧 Tools Enabled: {len(tools_to_import)}/{len(tool_imports)}")
-    safe_print(f"   🔑 Auth Method: OAuth 2.0 with PKCE")
+    safe_print(f"   🔑 Auth Method: {auth_method}")
     safe_print(f"   📝 Log Level: {logging.getLogger().getEffectiveLevel()}")
+    if access_token:
+        safe_print(f"   ⚠️  Access Token Mode: OAuth management disabled")
     print()
 
     # Set global single-user mode flag

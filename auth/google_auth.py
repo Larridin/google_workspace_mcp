@@ -433,9 +433,10 @@ def get_credentials(
     session_id: Optional[str] = None
 ) -> Optional[Credentials]:
     """
-    Retrieves stored credentials, prioritizing session, then file. Refreshes if necessary.
-    If credentials are loaded from file and a session_id is present, they are cached in the session.
-    In single-user mode, bypasses session mapping and uses any available credentials.
+    Retrieves stored credentials, prioritizing environment access token, then session, then file. 
+    Refreshes if necessary. If credentials are loaded from file and a session_id is present, 
+    they are cached in the session. In single-user mode, bypasses session mapping and uses 
+    any available credentials.
 
     Args:
         user_google_email: Optional user's Google email.
@@ -447,6 +448,22 @@ def get_credentials(
     Returns:
         Valid Credentials object or None.
     """
+    # Check for OAuth access token in environment variables first
+    access_token = os.getenv('GOOGLE_OAUTH_ACCESS_TOKEN')
+    if access_token:
+        logger.info("[get_credentials] Using OAuth access token from environment variable")
+        try:
+            # Create credentials directly from access token
+            credentials = Credentials(token=access_token)
+            
+            # Note: We can't validate scopes for raw access tokens without making an API call
+            # The calling service will handle any scope-related errors
+            logger.debug(f"[get_credentials] Created credentials from environment access token")
+            return credentials
+        except Exception as e:
+            logger.error(f"[get_credentials] Error creating credentials from access token: {e}")
+            return None
+    
     # Check for single-user mode
     if os.getenv('MCP_SINGLE_USER_MODE') == '1':
         logger.info(f"[get_credentials] Single-user mode: bypassing session mapping, finding any credentials")
@@ -560,6 +577,14 @@ class GoogleAuthenticationError(Exception):
         self.auth_url = auth_url
 
 
+class GoogleAccessTokenError(Exception):
+    """Exception raised when access token authentication fails."""
+    def __init__(self, message: str, is_expired: bool = False, is_invalid: bool = False):
+        super().__init__(message)
+        self.is_expired = is_expired
+        self.is_invalid = is_invalid
+
+
 async def get_authenticated_google_service(
     service_name: str,      # "gmail", "calendar", "drive", "docs"
     version: str,           # "v1", "v3"
@@ -569,7 +594,7 @@ async def get_authenticated_google_service(
 ) -> tuple[Any, str]:
     """
     Centralized Google service authentication for all MCP tools.
-    Returns (service, user_email) on success or raises GoogleAuthenticationError.
+    Returns (service, user_email) on success or raises GoogleAuthenticationError or GoogleAccessTokenError.
 
     Args:
         service_name: The Google service name ("gmail", "calendar", "drive", "docs")
@@ -582,17 +607,28 @@ async def get_authenticated_google_service(
         tuple[service, user_email] on success
 
     Raises:
-        GoogleAuthenticationError: When authentication is required or fails
+        GoogleAuthenticationError: When OAuth authentication is required or fails
+        GoogleAccessTokenError: When access token authentication fails
     """
     logger.info(
         f"[{tool_name}] Attempting to get authenticated {service_name} service. Email: '{user_google_email}'"
     )
 
-    # Validate email format
-    if not user_google_email or "@" not in user_google_email:
-        error_msg = f"Authentication required for {tool_name}. No valid 'user_google_email' provided. Please provide a valid Google email address."
-        logger.info(f"[{tool_name}] {error_msg}")
-        raise GoogleAuthenticationError(error_msg)
+    # Check if we're using access token mode
+    access_token = os.getenv('GOOGLE_OAUTH_ACCESS_TOKEN')
+    if access_token:
+        logger.info(f"[{tool_name}] Using access token from environment variable")
+        
+        # When using access token, user_google_email is not required for auth
+        # but we still need it for logging and identification
+        if not user_google_email:
+            user_google_email = "access-token-user"
+    else:
+        # Validate email format for OAuth flow
+        if not user_google_email or "@" not in user_google_email:
+            error_msg = f"Authentication required for {tool_name}. No valid 'user_google_email' provided. Please provide a valid Google email address."
+            logger.info(f"[{tool_name}] {error_msg}")
+            raise GoogleAuthenticationError(error_msg)
 
     credentials = await asyncio.to_thread(
         get_credentials,
@@ -602,39 +638,58 @@ async def get_authenticated_google_service(
         session_id=None,  # Session ID not available in service layer
     )
 
-
     if not credentials or not credentials.valid:
-        logger.warning(
-            f"[{tool_name}] No valid credentials. Email: '{user_google_email}'."
-        )
-        logger.info(
-            f"[{tool_name}] Valid email '{user_google_email}' provided, initiating auth flow."
-        )
+        # If using access token, this is an access token error
+        if access_token:
+            error_msg = (
+                f"**Access Token Authentication Failed for {service_name.title()}**\n\n"
+                f"The provided access token (GOOGLE_OAUTH_ACCESS_TOKEN) is invalid, expired, or lacks the required permissions for {service_name}.\n\n"
+                f"**Possible causes:**\n"
+                f"• Token has expired\n"
+                f"• Token was revoked\n"
+                f"• Token lacks required scopes: {', '.join(required_scopes)}\n"
+                f"• Token is malformed\n\n"
+                f"**To resolve this:**\n"
+                f"1. Generate a new access token with the required scopes\n"
+                f"2. Update the GOOGLE_OAUTH_ACCESS_TOKEN environment variable\n"
+                f"3. Restart the MCP server\n\n"
+                f"**Note:** When using access tokens, no OAuth flow management is available. The token must be valid and have all required permissions."
+            )
+            logger.warning(f"[{tool_name}] Access token authentication failed")
+            raise GoogleAccessTokenError(error_msg, is_expired=True)
+        else:
+            # OAuth flow
+            logger.warning(
+                f"[{tool_name}] No valid credentials. Email: '{user_google_email}'."
+            )
+            logger.info(
+                f"[{tool_name}] Valid email '{user_google_email}' provided, initiating auth flow."
+            )
 
-        # Import here to avoid circular import
-        from core.server import get_oauth_redirect_uri_for_current_mode
+            # Import here to avoid circular import
+            from core.server import get_oauth_redirect_uri_for_current_mode
 
-        # Ensure OAuth callback is available
-        redirect_uri = get_oauth_redirect_uri_for_current_mode()
-        # Note: We don't know the transport mode here, but the server should have set it
+            # Ensure OAuth callback is available
+            redirect_uri = get_oauth_redirect_uri_for_current_mode()
+            # Note: We don't know the transport mode here, but the server should have set it
 
-        # Generate auth URL and raise exception with it
-        auth_response = await start_auth_flow(
-            mcp_session_id=None,  # Session ID not available in service layer
-            user_google_email=user_google_email,
-            service_name=f"Google {service_name.title()}",
-            redirect_uri=redirect_uri,
-        )
+            # Generate auth URL and raise exception with it
+            auth_response = await start_auth_flow(
+                mcp_session_id=None,  # Session ID not available in service layer
+                user_google_email=user_google_email,
+                service_name=f"Google {service_name.title()}",
+                redirect_uri=redirect_uri,
+            )
 
-        # Extract the auth URL from the response and raise with it
-        raise GoogleAuthenticationError(auth_response)
+            # Extract the auth URL from the response and raise with it
+            raise GoogleAuthenticationError(auth_response)
 
     try:
         service = build(service_name, version, credentials=credentials)
         log_user_email = user_google_email
 
-        # Try to get email from credentials if needed for validation
-        if credentials and credentials.id_token:
+        # For access token mode, we don't have id_token, so use the provided email
+        if not access_token and credentials and credentials.id_token:
             try:
                 import jwt
                 # Decode without verification (just to get email for logging)
@@ -650,8 +705,31 @@ async def get_authenticated_google_service(
         return service, log_user_email
 
     except Exception as e:
-        error_msg = f"[{tool_name}] Failed to build {service_name} service: {str(e)}"
+        error_str = str(e)
+        
+        # Check for specific access token errors
+        if access_token and ("401" in error_str or "unauthorized" in error_str.lower() or "invalid" in error_str.lower()):
+            error_msg = (
+                f"**Access Token Authorization Failed for {service_name.title()}**\n\n"
+                f"The access token is valid but lacks the required permissions or the API request failed.\n\n"
+                f"**Error details:** {error_str}\n\n"
+                f"**Required scopes:** {', '.join(required_scopes)}\n\n"
+                f"**To resolve this:**\n"
+                f"1. Ensure your access token includes all required scopes\n"
+                f"2. Generate a new token with broader permissions if needed\n"
+                f"3. Verify the token hasn't been revoked\n\n"
+                f"**Note:** Access tokens cannot be refreshed. You must generate a new one when it expires."
+            )
+            logger.error(f"[{tool_name}] Access token authorization failed: {e}")
+            raise GoogleAccessTokenError(error_msg, is_invalid=True)
+        
+        # Generic error
+        error_msg = f"[{tool_name}] Failed to build {service_name} service: {error_str}"
         logger.error(error_msg, exc_info=True)
-        raise GoogleAuthenticationError(error_msg)
+        
+        if access_token:
+            raise GoogleAccessTokenError(error_msg)
+        else:
+            raise GoogleAuthenticationError(error_msg)
 
 
