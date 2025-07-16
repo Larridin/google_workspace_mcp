@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Any, Callable, Union
 from datetime import datetime, timedelta
 
 from google.auth.exceptions import RefreshError
-from auth.google_auth import get_authenticated_google_service, GoogleAuthenticationError
+from auth.google_auth import get_authenticated_google_service, GoogleAuthenticationError, GoogleAccessTokenError
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +259,8 @@ def require_google_service(
                         _cache_service(cache_key, service, actual_user_email)
                 except GoogleAuthenticationError as e:
                     raise Exception(str(e))
+                except GoogleAccessTokenError as e:
+                    raise Exception(str(e))
 
             # --- Call the original function with the service object injected ---
             try:
@@ -343,6 +345,8 @@ def require_multiple_services(service_configs: List[Dict[str, Any]]):
                     kwargs[param_name] = service
 
                 except GoogleAuthenticationError as e:
+                    raise Exception(str(e))
+                except GoogleAccessTokenError as e:
                     raise Exception(str(e))
 
             # Call the original function with refresh error handling
