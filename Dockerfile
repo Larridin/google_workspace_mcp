@@ -5,7 +5,12 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Install supergateway globally
+RUN npm install -g supergateway@3.4.0
 
 # Install uv for faster dependency management
 RUN pip install --no-cache-dir uv
@@ -65,4 +70,4 @@ RUN echo "=== Debug: Final startup test ===" && \
     python -c "print('Testing main.py import...'); import main; print('Main.py import successful')"
 
 # Command to run the application
-CMD ["python", "main.py", "--transport", "streamable-http"]
+CMD ["npx", "supergateway", "--stdio", "python main.py --single-user"]
